@@ -51,7 +51,7 @@ $INGRESS_CERT
 EOF
 ```
 
-[!TIP] 
+> [!TIP] 
 > View some details of the CA certificates
 > ```bash
 > $ echo $API_CERT | openssl x509 -noout -dates -issuer -subject
@@ -67,6 +67,14 @@ EOF
 > subject=CN=ingress-operator@1742247591
 > ```
 
+* 🔧 create a new project for demo-kubeconfig and do not add context to our current $KUBECONFIG
+```bash
+oc new-project $NAMESPACE\
+ --display-name='Demo SA Kubeconfig Mgmt'\
+ --description='See https://github.com/dlbewley/demo-kubeconfig'\
+ --skip-config-write
+```
+
 * 🤖 create a service account
 ```bash
 oc create serviceaccount $SERVICE_ACCOUNT -n $NAMESPACE
@@ -77,92 +85,22 @@ oc create serviceaccount $SERVICE_ACCOUNT -n $NAMESPACE
 export TOKEN=$(oc create token -n $NAMESPACE $SERVICE_ACCOUNT --duration=$DURATION)
 ```
 
-[!TIP] 
-> If you are curious to see the JWT token contents try this:
-> ```bash
-echo $TOKEN | cut -d '.' -f2 | base64 -d | jq                   
-{
-  "aud": [
-    "https://kubernetes.default.svc"
-  ],
-  "exp": 1744146844,
-  "iat": 1744143244,
-  "iss": "https://kubernetes.default.svc",
-  "jti": "e4510577-5955-4eb4-9f97-dec4f0e6dc34",
-  "kubernetes.io": {
-    "namespace": "demo-kubeconfig",
-    "serviceaccount": {
-      "name": "demo-sa",
-      "uid": "73a74060-e67d-4b1a-ad56-e92227732d53"
-    }
-  },
-  "nbf": 1744143244,
-  "sub": "system:serviceaccount:demo-kubeconfig:demo-sa"
-}
-
-# mac
-TS_ISSUED=$(echo $TOKEN | cut -d '.' -f2 | base64 -d | jq '.iat')
-TS_EXPIRATION=$(echo $TOKEN | cut -d '.' -f2 | base64 -d | jq '.exp')
-
-# view the issued and expiry times
-date -r $TS_EXPIRATION # on MacOS
-date -d @$TS_EXPIRATION # on Linux
-
-oc login --server="$API_URL" --token="$TOKEN" --kubeconfig="$KUBECONFIG_SA"
-# The server uses a certificate signed by an unknown authority.
-# You can bypass the certificate check, but any data you send to the server could be intercepted by others.
-# Use insecure connections? (y/n): y
-
-# WARNING: Using insecure TLS client config. Setting this option is not supported!
-
-# Logged into "https://api.agent.lab.bewley.net:6443" as "system:serviceaccount:demo-kubeconfig:demo-sa" using the token provided.
-
-# You have one project on this server: "openshift-virtualization-os-images"
-
-# Using project "openshift-virtualization-os-images".
-
-oc whoami --kubeconfig="$KUBECONFIG_SA"
-system:serviceaccount:demo-kubeconfig:demo-sa
-
-# oc create configmap -n $NAMESPACE $SERVICE_ACCOUNT-token --from-literal=token=$TOKEN
-# oc create secret generic -n $NAMESPACE $SERVICE_ACCOUNT-token --from-literal=token=$TOKEN
-
-```
-
+* 🔧 create kubeconfig file for $SERVICE_ACCOUNT in $NAMESPACE and avoid insecure connection
 ```bash
-source ~/src/demos/demo-magic/demo-magic.sh
-source ~/.kube/ocp/agent/.env
-echo $KUBECONFIG
-oc whoami
-oc new-project demo-kubeconfig \
-    --display-name="Demo Kubeconfig Mgmt" \
-    --description="See https://github.com/dlbewley/demo-kubeconfig" \
-    --skip-config-write
-oc get serviceaccounts -n demo-kubeconfig
-oc create serviceaccount demo-sa -n demo-kubeconfig
-
-API_CERT=$(oc get secret -n openshift-kube-apiserver-operator loadbalancer-serving-signer -o jsonpath='{.data.tls\.crt}' | base64 -d)
-echo $API_CERT | openssl x509 -noout -dates -issuer -subject
-notBefore=Mar 17 20:50:37 2025 GMT
-notAfter=Mar 15 20:50:37 2035 GMT
-issuer=OU=openshift, CN=kube-apiserver-lb-signer
-subject=OU=openshift, CN=kube-apiserver-lb-signer
-
-INGRESS_CERT=$(oc get secret -n openshift-ingress-operator router-ca -o jsonpath='{.data.tls\.crt}' | base64 -d)
-echo $INGRESS_CERT | openssl x509 -noout -dates -issuer -subject 
-notBefore=Mar 17 21:39:50 2025 GMT
-notAfter=Mar 17 21:39:51 2027 GMT
-issuer=CN=ingress-operator@1742247591
-subject=CN=ingress-operator@1742247591
-
-echo $API_CERT > ca-bundle.crt
-echo $INGRESS_CERT >> ca-bundle.crt
-
-# verify ca for API
-curl --cacert ./ca-bundle.crt https://$API_URL/healthz 
-ok%                                                                                          
-
-# modify existing context, but i don't know what that name is yet... it appears to be set to the same value as $API_URL exactly
-oc config set-cluster $API_URL --embed-certs --certificate-authority=./ca-bundle.crt --server https://$API_URL --kubeconfig="$KUBECONFIG_SA"
-
+oc login --server=$API_SERVER --token=$TOKEN --certificate-authority=./ca-bundle.crt --kubeconfig=$KUBECONFIG_SA
 ```
+
+* 🔑 insert the ca-bundle.crt into the kubeconfig file
+```bash
+oc config set-cluster $API_SERVER --embed-certs --certificate-authority=./ca-bundle.crt --server https://$API_SERVER --kubeconfig="$KUBECONFIG_SA"
+```
+
+* ✅ verify using the kubeconfig file works
+```bash
+oc whoami --kubeconfig=$KUBECONFIG_SA
+# 🔒 the service account will have limited permissions until RBAC is configured"
+oc get sa --kubeconfig=$KUBECONFIG_SA
+```
+
+* 🎉 configure RBAC and provide $KUBECONFIG_SA to your user"
+
